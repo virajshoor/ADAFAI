@@ -1,0 +1,22 @@
+[project]
+name = "adafai"
+version = "0.2.0"
+description = "Automated Detection Algorithm For Artificial Intelligence — AI-generated text detection"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = []  # core signals are standard-library only
+
+[project.optional-dependencies]
+models = ["torch>=2.0", "transformers>=4.46"]
+eval = ["numpy>=1.24", "datasets>=2.14", "torch>=2.0", "transformers>=4.46"]
+
+[project.scripts]
+adafai = "adafai.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["adafai*"]

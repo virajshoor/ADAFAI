@@ -1,0 +1,11 @@
+# Core (stylometry, unicode forensics, watermark z-test) needs NOTHING
+# beyond the standard library. Install this file only if you want the
+# model-based signals and the evaluation harness.
+
+# model-based signals: perplexity, GLTR, Fast-DetectGPT, Binoculars, SynthID
+torch>=2.0
+transformers>=4.46
+
+# evaluation harness (adafai.eval)
+numpy>=1.24
+datasets>=2.14
