@@ -74,6 +74,23 @@ print(result["signals"]["binoculars"])
 
 ---
 
+## Web UI
+
+**[https://virajshoor.github.io/ADAFAI/](https://virajshoor.github.io/ADAFAI/)** — paste any amount
+of text and get the verdict, the signal breakdown, and a sentence-by-sentence
+heatmap where clicking a sentence shows exactly *why* it scored what it did
+(named tell-phrases, invisible characters, local diversity, repetition).
+
+The UI is a zero-dependency static site in `docs/`: the core signals are ported
+to JavaScript and run entirely in your browser, so **nothing is uploaded and
+there is no length limit**. The torch-based signals (perplexity, Binoculars,
+watermarks) can't run in a browser and remain Python-only.
+
+It deploys via `.github/workflows/pages.yml` on every push to `main` that
+touches `docs/`. One-time setup: **Settings → Pages → Source → GitHub Actions**.
+
+---
+
 ## What it detects
 
 | Signal | What it measures | Deps | Status |
@@ -136,6 +153,7 @@ proven, not assumed.
 - **Short text is unscoreable.** Below 150 words the tool abstains by design.
 - **Non-native English writers get false positives.** Stylometric and perplexity signals systematically misfire on ESL writing across every tool in this space. If you deploy this in an educational setting without accounting for that, you will disproportionately harm the students least able to contest it.
 - **Edited human text trips the typography signal.** Word processors autocorrect straight quotes into curly ones, which is why that signal is weighted low.
+- **Per-sentence scores are navigation hints, not mini-verdicts.** They exist to show *where* the document-level signals concentrate. A flagged sentence is a reason to look closer, not evidence about that sentence.
 
 ---
 
@@ -145,7 +163,7 @@ proven, not assumed.
 - [ ] **Fitted ensemble** — replace hand-picked weights with logistic regression on labeled data
 - [ ] **Calibrated thresholds** — per-model-pair Binoculars thresholds instead of the paper's Falcon-specific constant
 - [ ] Fast-DetectGPT and GLTR over a shared forward pass
-- [ ] Per-paragraph scoring for mixed human/AI documents
+- [x] Per-sentence scoring for mixed human/AI documents (`adafai.spans`, powers the web UI heatmap)
 - [ ] Anthropic watermark API once the endpoint ships
 
 ---
@@ -156,14 +174,16 @@ proven, not assumed.
 adafai/
 ├── stylometry.py          # lexical + statistical features (no deps)
 ├── unicode_forensics.py   # character-level provenance (no deps)
+├── spans.py               # per-sentence localization + reasons (no deps)
 ├── perplexity.py          # perplexity + burstiness
 ├── binoculars.py          # cross-model perplexity ratio
 ├── detector.py            # ensemble → score + verdict
-├── cli.py                 # adafai detect / adafai watermark
+├── cli.py                 # adafai detect [--spans] / adafai watermark
 └── watermark/
     ├── kirchenbauer.py    # green/red-list z-test (reference-interoperable)
     ├── synthid.py         # SynthID-Text detector wrapper
     └── providers.py       # per-provider watermark status
+docs/                      # web UI (zero-dependency JS port of the core signals)
 tests/                     # assert-based, no framework required
 ```
 
@@ -171,7 +191,12 @@ Run the checks:
 
 ```bash
 python tests/test_stylometry.py && python tests/test_unicode_forensics.py && python tests/test_kirchenbauer.py
+python tests/test_spans.py
+node tests/test_web_ui.mjs   # browser-port parity behaviors
 ```
+
+`adafai detect --spans` additionally lists the most AI-like sentences and the
+reason for each — useful for mixed human/AI documents.
 
 ---
 
