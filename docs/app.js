@@ -136,6 +136,32 @@ function renderWhy(result, text) {
     else human.push("plain keyboard typography");
   }
 
+  // Discourse structure: the rhetorical scaffold a humanizer pass leaves behind.
+  const d = result.signals.discourse;
+  if (d.negation_pivots_per_1000w >= 5) {
+    ai.push(`${d.negation_pivots_per_1000w} negation pivots per 1,000 words ("not X, but Y" rhetoric): ${d.negation_pivot_hits.map((h) => `'${h}'`).join(", ")}`);
+  } else if (d.negation_pivots_per_1000w === 0) {
+    human.push("no negation-pivot rhetoric (not merely…, but rather…, not X; it Y)");
+  }
+  if (d.tricolons_per_1000w >= 8) {
+    ai.push(`${d.tricolons_per_1000w} rule-of-three lists per 1,000 words ("X, Y, and Z")`);
+  } else if (d.tricolons_per_1000w === 0) {
+    human.push("no rule-of-three list cadence");
+  }
+  if (d.self_qa_per_1000w > 0) {
+    ai.push(`${d.self_qa_per_1000w} self-answered questions per 1,000 words ("Slightly creepy? Sure.")`);
+  } else {
+    human.push("doesn't ask and answer its own questions");
+  }
+  if (d.punch_line_ratio !== null) {
+    if (d.punch_line_ratio >= 0.8) ai.push(`${Math.round(d.punch_line_ratio * 100)}% of paragraphs end on a short punch-line — the zinger-per-paragraph cadence`);
+    else if (d.punch_line_ratio <= 0.4) human.push("paragraphs end unevenly, not on per-paragraph punch-lines");
+  }
+  if (d.paragraph_length_cv !== null) {
+    if (d.paragraph_length_cv < 0.5) ai.push(`uniform paragraph lengths (CV ${d.paragraph_length_cv}; human writing is lumpier)`);
+    else human.push(`lumpy paragraph lengths (CV ${d.paragraph_length_cv})`);
+  }
+
   if (result.word_count < MIN_WORDS_FOR_VERDICT) {
     ai.length = 0;
     ai.push(`below the ${MIN_WORDS_FOR_VERDICT}-word floor — not enough text for any statistical claim`);
@@ -150,8 +176,10 @@ function renderWhy(result, text) {
 function renderSignals(result) {
   const s = result.signals.stylometry;
   const u = result.signals.unicode;
+  const d = result.signals.discourse;
   $("stylometryScore").textContent = s.score.toFixed(2);
   $("unicodeScore").textContent = u.score.toFixed(2);
+  $("discourseScore").textContent = d.score.toFixed(2);
 
   $("stylometryMetrics").replaceChildren(
     ...Object.entries({
@@ -161,6 +189,17 @@ function renderSignals(result) {
       "AI-tell phrases / 1,000w": s.ai_phrase_density_per_1000w,
       "punctuation entropy": s.punctuation_entropy,
       sentences: s.sentence_count,
+    }).flatMap(([k, v]) => [el("dt", k), el("dd", v)]),
+  );
+
+  $("discourseMetrics").replaceChildren(
+    ...Object.entries({
+      "negation pivots / 1,000w": d.negation_pivots_per_1000w,
+      "rule-of-three lists / 1,000w": d.tricolons_per_1000w,
+      "self-answered questions / 1,000w": d.self_qa_per_1000w,
+      "paragraphs ending on a punch-line": d.punch_line_ratio === null ? "n/a (<3 paragraphs)" : `${Math.round(d.punch_line_ratio * 100)}%`,
+      "paragraph-length CV": d.paragraph_length_cv ?? "n/a (<3 paragraphs)",
+      paragraphs: d.paragraph_count,
     }).flatMap(([k, v]) => [el("dt", k), el("dd", v)]),
   );
 
