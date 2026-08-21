@@ -14,6 +14,20 @@ _WORD_RE = re.compile(r"[A-Za-z']+")
 _SENT_RE = re.compile(r"[^.!?]+[.!?]+|[^.!?]+$")
 _PUNCT_CHARS = ".,;:!?—–-\"'()"
 
+# Sentence-boundary protection. A naive [.!?] split corrupts the burstiness
+# signal (CV) on ordinary prose: "Dr." and "3.14" are not boundaries. The
+# periods below are swapped for a placeholder before splitting and restored
+# after. Rule-based only - no trained tokenizer, no corpus assumptions.
+# Trade-off: a sentence-final abbreviation followed by a lowercase word
+# ("...and so on etc. the next day") is merged into one sentence. That is the
+# conservative direction for this tool: fewer false boundaries.
+_PLACEHOLDER = "\uE000"  # private-use area, 1:1 length-preserving
+_ABBREV_RE = re.compile(
+    r"\b(?:Mr|Mrs|Ms|Dr|St|vs|Jr|Sr|Prof|cf|etc|Inc|Ltd|No|Fig|Eq|al|e\.g|i\.e)\."
+)
+_INITIAL_RE = re.compile(r"\b[A-Z]\.")          # "J. R. R. Tolkien"
+_DECIMAL_RE = re.compile(r"(?<=\d)\.(?=\d)")    # "3.14"
+
 # Words/phrases disproportionately overused by GPT-family and Claude-family
 # models relative to human baseline corpora (Wikipedia:Signs of AI writing,
 # Reuters Institute, Grammarly, Forbes AI-writing-signs coverage, 2024-2026).
@@ -38,22 +52,55 @@ def _words(text: str) -> list[str]:
     return _WORD_RE.findall(text.lower())
 
 
+def _protect(text: str) -> str:
+    text = _DECIMAL_RE.sub(_PLACEHOLDER, text)
+    text = _ABBREV_RE.sub(lambda m: m.group(0).replace(".", _PLACEHOLDER), text)
+    return _INITIAL_RE.sub(lambda m: m.group(0).replace(".", _PLACEHOLDER), text)
+
+
+def _sentence_spans(text: str) -> list[tuple[int, int, str]]:
+    """(start, end, sentence) tuples. Offsets index into the original text -
+    the placeholder swap is 1:1, so protection never moves a character."""
+    protected = _protect(text)
+    return [
+        (m.start(), m.end(), m.group(0).replace(_PLACEHOLDER, ".").strip())
+        for m in _SENT_RE.finditer(protected)
+        if m.group(0).strip()
+    ]
+
+
 def _sentences(text: str) -> list[str]:
-    return [s.strip() for s in _SENT_RE.findall(text) if s.strip()]
+    return [s for _, _, s in _sentence_spans(text)]
 
 
 def mattr(words: list[str], window: int = 50) -> float:
-    """Moving-average type-token ratio: lexical diversity, length-invariant."""
+    """Moving-average type-token ratio: lexical diversity, length-invariant.
+
+    Sliding distinct-count, O(n): results are identical to recomputing
+    len(set(chunk)) per window, but a book-length input no longer costs
+    O(n * window).
+    """
     n = len(words)
     if n == 0:
         return 0.0
     if n <= window:
         return len(set(words)) / n
-    ratios = []
-    for i in range(n - window + 1):
-        chunk = words[i:i + window]
-        ratios.append(len(set(chunk)) / window)
-    return sum(ratios) / len(ratios)
+    counts: dict[str, int] = {}
+    for w in words[:window]:
+        counts[w] = counts.get(w, 0) + 1
+    distinct = len(counts)
+    total = distinct
+    for i in range(window, n):
+        old = words[i - window]
+        counts[old] -= 1
+        if counts[old] == 0:
+            distinct -= 1
+        new = words[i]
+        if counts.get(new, 0) == 0:
+            distinct += 1
+        counts[new] = counts.get(new, 0) + 1
+        total += distinct
+    return total / ((n - window + 1) * window)
 
 
 def sentence_length_cv(sentences: list[str]) -> float:

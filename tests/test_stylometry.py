@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from adafai.stylometry import analyze_stylometry
+from adafai.stylometry import _sentences, analyze_stylometry, mattr
 
 AI_LIKE = (
     "In today's world, it is important to note that technology plays a pivotal role. "
@@ -34,7 +34,30 @@ def test_empty_text_does_not_crash():
     assert result["word_count"] == 0
 
 
+def test_mattr_matches_naive_window_scan():
+    vocab = [f"w{i}" for i in range(40)]
+    words = [vocab[(i * 7 + i // 11) % 40] for i in range(500)]
+
+    def naive(ws, window=50):
+        if len(ws) <= window:
+            return len(set(ws)) / len(ws)
+        return sum(len(set(ws[i:i + window])) / window
+                   for i in range(len(ws) - window + 1)) / (len(ws) - window + 1)
+
+    assert abs(mattr(words) - naive(words)) < 1e-12
+    assert mattr([]) == 0.0
+    assert mattr(words[:10]) == naive(words[:10])
+
+
+def test_sentence_splitter_protects_abbreviations_and_decimals():
+    sents = _sentences("Dr. Smith paid 3.14 today. Then he left. J. R. R. wrote!")
+    assert sents == ["Dr. Smith paid 3.14 today.", "Then he left.", "J. R. R. wrote!"]
+    assert _sentences("see i.e. the doc. done") == ["see i.e. the doc.", "done"]
+
+
 if __name__ == "__main__":
     test_directionality()
     test_empty_text_does_not_crash()
+    test_mattr_matches_naive_window_scan()
+    test_sentence_splitter_protects_abbreviations_and_decimals()
     print("ok")

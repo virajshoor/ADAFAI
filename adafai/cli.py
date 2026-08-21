@@ -34,6 +34,22 @@ def _cmd_detect(args) -> None:
         print(f"  {name:12} {sig['score']}")
     print(f"\n{result['note']}")
 
+    if args.spans:
+        from adafai.spans import analyze_spans
+
+        spans = analyze_spans(text)
+        top = sorted(
+            (s for s in spans["sentences"] if not s["low_confidence"]),
+            key=lambda s: s["score"], reverse=True,
+        )[:5]
+        print("\nmost AI-like sentences:")
+        if not top:
+            print("  (none above the noise floor)")
+        for s in top:
+            preview = s["text"][:90] + ("..." if len(s["text"]) > 90 else "")
+            print(f"  [{s['score']:.2f}] {preview}")
+            print(f"         -> {s['reasons'][0]}")
+
 
 def _cmd_watermark(args) -> None:
     from transformers import AutoTokenizer
@@ -67,6 +83,8 @@ def main() -> None:
     src.add_argument("--text", help="text to analyze")
     d.add_argument("--models", action="store_true",
                    help="also run perplexity + Binoculars (needs torch, transformers)")
+    d.add_argument("--spans", action="store_true",
+                   help="also list the most AI-like sentences and why")
     d.add_argument("--json", action="store_true", help="emit raw JSON")
     d.set_defaults(func=_cmd_detect)
 
