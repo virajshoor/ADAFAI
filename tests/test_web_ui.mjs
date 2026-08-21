@@ -8,7 +8,12 @@
  * scope for a no-dependency repo.
  */
 import assert from "node:assert/strict";
-import { analyze, analyzeSpans, analyzeStylometry, mattr } from "../docs/detector.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { analyze, analyzeDiscourse, analyzeSpans, analyzeStylometry, mattr } from "../docs/detector.js";
+
+const fixture = (name) =>
+  readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)), "utf8");
 
 const AI_LIKE =
   "In today's world, it is important to note that technology plays a pivotal role. " +
@@ -87,6 +92,61 @@ const HUMAN_LIKE =
 // ensemble abstains under the word floor
 {
   assert.equal(analyze("short text").verdict, "insufficient evidence");
+}
+
+/* ---- discourse signal (mirrors tests/test_discourse.py) ---- */
+
+// casual multi-paragraph human prose with two of the tics on purpose: one
+// habit alone must not move the verdict
+const HUMAN_MULTI =
+  "update on the shed roof: it's leaking again. of course it is.\n\n" +
+  "I climbed up there saturday with the tar patch stuff and honestly I think " +
+  "I made it worse. There's a whole section near the gutter where the plywood " +
+  "feels spongy, which dan says means the rot goes deeper than the shingles. " +
+  "He offered to come look next weekend but he's said that before.\n\n" +
+  "So now I'm watching youtube videos about roof repair at 1am like that's " +
+  "going to help. The quotes I got last year were all around 4k which we " +
+  "absolutely do not have. Might just let it leak into the bucket for another " +
+  "winter and deal with it in spring. that's a problem for future me.\n\n" +
+  "Anyway. The tomatoes are doing great at least. Deb came by sunday with her " +
+  "ladder and we just sat on the porch instead, drinking her homemade lemonade " +
+  "and pretending the roof doesn't exist. honestly? best afternoon in weeks.";
+
+// empty input
+{
+  const d = analyzeDiscourse("");
+  assert.equal(d.score, 0.0);
+  assert.equal(d.punch_line_ratio, null);
+  assert.equal(d.paragraph_length_cv, null);
+}
+
+// both fixtures from the false-negative report are no longer cleared as human
+{
+  const original = analyze(fixture("ai_essay_original.txt"));
+  assert.notEqual(original.verdict, "likely human", original.score);
+  assert.ok(original.signals.discourse.negation_pivots_per_1000w >= 5);
+  assert.ok(original.signals.discourse.tricolons_per_1000w >= 8);
+
+  const humanized = analyze(fixture("ai_essay_humanized.txt"));
+  assert.notEqual(humanized.verdict, "likely human", humanized.score);
+  const d = humanized.signals.discourse;
+  assert.ok(d.score > humanized.signals.stylometry.score);
+  assert.ok(d.self_qa_per_1000w > 0);
+  assert.ok(d.negation_pivots_per_1000w > 0);
+  assert.ok(d.punch_line_ratio !== null && d.punch_line_ratio >= 0.5);
+
+  assert.equal(analyze(HUMAN_MULTI).verdict, "likely human");
+}
+
+// spans: discourse tells get named reasons
+{
+  const r = analyzeSpans("Was it worth it? Absolutely.");
+  const answer = r.sentences.find((s) => s.text === "Absolutely.");
+  assert.ok(answer.reasons.some((x) => x.includes("self-answered question")));
+
+  const p = analyzeSpans("This is not merely good. It is great.");
+  const pivot = p.sentences.find((s) => s.text.includes("not merely"));
+  assert.ok(pivot.reasons.some((x) => x.includes("negation pivot")));
 }
 
 console.log("ok");

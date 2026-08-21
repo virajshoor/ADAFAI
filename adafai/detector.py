@@ -1,8 +1,8 @@
 """Ensemble: combines every available signal into one verdict.
 
-Always-on signals (stylometry, unicode forensics) are pure standard
-library. Perplexity and Binoculars need torch+transformers and run only
-with use_models=True.
+Always-on signals (stylometry, unicode forensics, discourse structure) are
+pure standard library. Perplexity and Binoculars need torch+transformers
+and run only with use_models=True.
 
 The weights below are a documented heuristic, NOT fit on labeled data.
 Treat the score as triage, not proof - see README "Limitations". The
@@ -14,6 +14,7 @@ a green-list z-test is a cryptographic result, not a statistical hint,
 so blending it into an average would destroy the thing that makes it
 valuable.
 """
+from adafai.discourse import analyze_discourse
 from adafai.stylometry import analyze_stylometry
 from adafai.unicode_forensics import analyze_unicode
 
@@ -32,8 +33,12 @@ def analyze(
     signals = {
         "stylometry": analyze_stylometry(text),
         "unicode": analyze_unicode(text),
+        "discourse": analyze_discourse(text),
     }
-    weights = {"stylometry": 0.30, "unicode": 0.10}
+    # Discourse is weighted on par with stylometry on purpose: the surface
+    # statistics stylometry measures are exactly what a humanizer pass
+    # rewrites, while the rhetorical scaffold is what survives it.
+    weights = {"stylometry": 0.30, "unicode": 0.10, "discourse": 0.35}
 
     if use_models:
         from adafai.binoculars import analyze_binoculars

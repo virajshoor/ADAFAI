@@ -3,7 +3,8 @@
  * in the browser (GitHub Pages has no backend, and nothing is uploaded).
  *
  * This is a line-by-line port of adafai/stylometry.py, adafai/unicode_forensics.py,
- * adafai/detector.py (always-on signals only), and adafai/spans.py. Thresholds and
+ * adafai/discourse.py, adafai/detector.py (always-on signals only), and
+ * adafai/spans.py. Thresholds and
  * weights are identical to the Python originals; keep the two in lockstep.
  * The torch-based signals (perplexity, Binoculars, watermarks) cannot run in a
  * browser and are intentionally absent - the UI says so.
@@ -166,6 +167,103 @@ export function analyzeStylometry(text) {
   };
 }
 
+/* ---- discourse.py port: the rhetorical scaffold that survives rewriting ----
+   See the Python module for the full rationale. Thresholds are identical. */
+
+const PUNCH_LINE_MAX_WORDS = 10;
+const SELF_QA_MAX_ANSWER_WORDS = 5;
+const MIN_PARAGRAPHS = 3;
+
+const NEGATION = "(?:[a-z']*n't|not)";
+export const NEGATION_PIVOT_RES = [
+  new RegExp("\\bnot\\s+(?:just|merely|simply|only)\\b", "g"),
+  new RegExp(`\\b${NEGATION}\\b[^.!?]{0,60}?\\bbut\\b`, "g"),
+  new RegExp("\\b(?:isn't|is not|aren't|are not|wasn't|was not)\\s+whether\\b", "g"),
+  new RegExp("\\bbut\\s+rather\\b", "g"),
+  new RegExp(`\\b${NEGATION}\\b[^.!?]{0,60}?;\\s*(?:it|they|this|that|we|he|she)\\b`, "g"),
+];
+export const TRICOLON_RE = /\b\w+[^.!?;:()]{1,60},[^.!?;:()]{1,60},\s*(?:and|or)\b/g;
+
+function paragraphsOf(text) {
+  return text.split(/\n\s*\n/).map((p) => p.trim()).filter((p) => p);
+}
+
+function negationPivots(text) {
+  const low = text.toLowerCase();
+  return NEGATION_PIVOT_RES.flatMap((re) => [...low.matchAll(re)].map((m) => m[0]));
+}
+
+function selfQaCount(sentences) {
+  let n = 0;
+  for (let i = 1; i < sentences.length; i++) {
+    const nWords = words(sentences[i]).length;
+    if (sentences[i - 1].trimEnd().endsWith("?") && nWords > 0 && nWords <= SELF_QA_MAX_ANSWER_WORDS) n++;
+  }
+  return n;
+}
+
+function punchLineRatio(paras) {
+  const multi = paras.filter((p) => sentenceSpans(p).length >= 2);
+  if (multi.length < MIN_PARAGRAPHS) return null;
+  const punched = multi.filter((p) => {
+    const sents = sentenceSpans(p);
+    return words(sents[sents.length - 1].text).length <= PUNCH_LINE_MAX_WORDS;
+  }).length;
+  return punched / multi.length;
+}
+
+function paragraphLengthCV(paras) {
+  if (paras.length < MIN_PARAGRAPHS) return null;
+  const lengths = paras.map((p) => words(p).length);
+  const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+  if (mean === 0) return null;
+  const variance = lengths.reduce((a, x) => a + (x - mean) ** 2, 0) / lengths.length;
+  return Math.sqrt(variance) / mean;
+}
+
+export function analyzeDiscourse(text) {
+  const w = words(text);
+  const wordCount = w.length;
+  if (wordCount === 0) {
+    return { word_count: 0, paragraph_count: 0, negation_pivots_per_1000w: 0.0,
+             tricolons_per_1000w: 0.0, self_qa_per_1000w: 0.0, punch_line_ratio: null,
+             paragraph_length_cv: null, negation_pivot_hits: [], score: 0.0 };
+  }
+
+  const sentences = sentenceSpans(text).map((s) => s.text);
+  const paras = paragraphsOf(text);
+  const pivots = negationPivots(text);
+  const tricolons = [...text.toLowerCase().matchAll(TRICOLON_RE)];
+  const qas = selfQaCount(sentences);
+  const punch = punchLineRatio(paras);
+  const paraCv = paragraphLengthCV(paras);
+
+  const pivotsPer1000 = (pivots.length * 1000) / wordCount;
+  const trisPer1000 = (tricolons.length * 1000) / wordCount;
+  const qaPer1000 = (qas * 1000) / wordCount;
+
+  const pivotTerm = Math.min(pivotsPer1000 / 5.0, 1.0);
+  const triTerm = Math.min(trisPer1000 / 8.0, 1.0);
+  const qaTerm = Math.min(qaPer1000 / 3.0, 1.0);
+  const punchTerm = punch === null ? 0.0 : Math.min(Math.max((punch - 0.4) / 0.4, 0.0), 1.0);
+  const paraCvTerm = paraCv === null ? 0.0 : Math.max(0.0, (0.5 - paraCv) / 0.5);
+
+  const score = 0.30 * pivotTerm + 0.20 * triTerm + 0.15 * qaTerm
+    + 0.15 * punchTerm + 0.20 * paraCvTerm;
+
+  return {
+    word_count: wordCount,
+    paragraph_count: paras.length,
+    negation_pivots_per_1000w: round2(pivotsPer1000),
+    tricolons_per_1000w: round2(trisPer1000),
+    self_qa_per_1000w: round2(qaPer1000),
+    punch_line_ratio: punch === null ? null : round4(punch),
+    paragraph_length_cv: paraCv === null ? null : round4(paraCv),
+    negation_pivot_hits: [...new Set(pivots)].sort().slice(0, 6),
+    score: round4(Math.min(Math.max(score, 0.0), 1.0)),
+  };
+}
+
 /* Tables keyed by explicit escapes - the characters themselves are invisible
    or confusable, which is the entire point of the check. */
 const INVISIBLE = new Map([
@@ -300,8 +398,12 @@ export function analyzeUnicode(text) {
 export const MIN_WORDS_FOR_VERDICT = 150;
 
 export function analyze(text) {
-  const signals = { stylometry: analyzeStylometry(text), unicode: analyzeUnicode(text) };
-  const weights = { stylometry: 0.30, unicode: 0.10 };
+  const signals = { stylometry: analyzeStylometry(text), unicode: analyzeUnicode(text),
+                    discourse: analyzeDiscourse(text) };
+  // Discourse is weighted on par with stylometry on purpose: the surface
+  // statistics stylometry measures are exactly what a humanizer pass
+  // rewrites, while the rhetorical scaffold is what survives it.
+  const weights = { stylometry: 0.30, unicode: 0.10, discourse: 0.35 };
 
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
   const score = Object.entries(weights).reduce((a, [k, w]) => a + signals[k].score * w, 0) / total;
@@ -352,7 +454,7 @@ export function analyzeSpans(text) {
   const wordStarts = wordMatches.map((m) => m.indices[0][0]);
   const half = CONTEXT_WORDS / 2;
 
-  const sentences = spans.map(({ start, end, text: sent }) => {
+  const sentences = spans.map(({ start, end, text: sent }, i) => {
     const low = sent.toLowerCase();
     const nWords = (low.match(WORD_RE) ?? []).length;
     const reasons = [];
@@ -371,12 +473,22 @@ export function analyzeSpans(text) {
     const homoglyphs = present(sent, HOMOGLYPHS);
     const typo = [..."‘’“”"].reduce((a, c) => a + countOccurrences(sent, c), 0) + countOccurrences(sent, "—");
 
+    // Sentence-visible slice of the discourse signal (adafai.discourse):
+    // the rhetorical habits a humanizer pass leaves behind.
+    const pivots = NEGATION_PIVOT_RES.flatMap((re) => [...low.matchAll(re)].map((m) => m[0]));
+    const tricolon = [...low.matchAll(TRICOLON_RE)].length > 0;
+    const selfQa = i > 0 && spans[i - 1].text.trimEnd().endsWith("?")
+      && nWords > 0 && nWords <= SELF_QA_MAX_ANSWER_WORDS;
+
     const phraseTerm = Math.min(hits / 2.0, 1.0);
     const diversityTerm = Math.max(0.0, (0.75 - diversity) / 0.75);
     const repTerm = Math.min(rep / 0.15, 1.0);
     const typoTerm = typo ? 1.0 : 0.0;
 
-    let score = 0.40 * phraseTerm + 0.20 * diversityTerm + 0.20 * repTerm + 0.10 * typoTerm;
+    let score = 0.40 * phraseTerm + 0.20 * diversityTerm + 0.20 * repTerm + 0.10 * typoTerm
+      + 0.10 * (pivots.length ? 1.0 : 0.0)
+      + 0.10 * (tricolon ? 1.0 : 0.0)
+      + 0.10 * (selfQa ? 1.0 : 0.0);
     let artifact = false;
     if (invisible.length) { score = Math.max(score, 0.85); artifact = true; }
     if (homoglyphs.length) { score = Math.max(score, 0.90); artifact = true; }
@@ -394,6 +506,12 @@ export function analyzeSpans(text) {
       reasons.push(`low local lexical diversity (MATTR ${diversity.toFixed(2)}; human baseline ~0.75+)`);
     }
     if (rep > 0) reasons.push(`${(rep * 100).toFixed(1)}% of nearby word trigrams repeat`);
+    if (pivots.length) {
+      const shown = [...new Set(pivots)].sort().slice(0, 2).map((p) => `'${p}'`).join(", ");
+      reasons.push(`negation pivot ${shown} - 'not X, but Y' rhetoric, a discourse-level AI tell`);
+    }
+    if (tricolon) reasons.push("rule-of-three list ('X, Y, and Z') - a discourse-level AI tell");
+    if (selfQa) reasons.push("self-answered question - fake conversational voice");
     if (typo) reasons.push("typographic polish (em dash / curly quotes) - weak signal");
     if (!reasons.length) reasons.push("no AI signals in this sentence");
 
