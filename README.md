@@ -51,6 +51,7 @@ words   : 412
 signals:
   stylometry   0.81
   unicode      0.45
+  discourse    0.62
 
 Heuristic ensemble with unfitted weights - triage signal, not proof.
 ```
@@ -97,6 +98,7 @@ touches `docs/`. One-time setup: **Settings → Pages → Source → GitHub Acti
 |---|---|:--:|:--:|
 | **Stylometry** | Lexical diversity (MATTR), sentence-length variance, punctuation entropy, self-repetition, and density of overused AI-tell phrases (*delve, underscore, tapestry, pivotal…*) | none | ✅ |
 | **Unicode forensics** | Zero-width characters, exotic spaces, mixed-script homoglyphs, typographic polish. *Provenance*, not style — low recall, high precision | none | ✅ |
+| **Discourse structure** | The rhetorical scaffold a humanizer pass leaves behind: negation pivots (*not merely X… but rather Y*), rule-of-three lists, self-answered questions (*Slightly creepy? Sure.*), per-paragraph punch-line cadence, paragraph-length uniformity | none | ✅ |
 | **Perplexity + burstiness** | GPTZero's original method: how predictable the text is, and how much that predictability varies between sentences | torch | ✅ |
 | **Binoculars** | Ratio of an observer model's perplexity to observer/performer cross-perplexity. Best-performing zero-shot method published ([Hans et al., ICML 2024](https://arxiv.org/abs/2401.12070)) | torch | ✅ |
 | **Green-list watermark** | Kirchenbauer et al. z-test — **verified interoperable** with the reference implementation | torch | ✅ |
@@ -149,7 +151,7 @@ proven, not assumed.
 > No detector on the market — this one included — is accurate enough to justify that.
 
 - **No benchmark numbers yet.** The ensemble weights are a documented heuristic, not fitted on labeled data. Building the evaluation harness is the [next milestone](#roadmap). Until then, treat the score as triage. Anyone publishing accuracy claims without measurement is guessing, and we'd rather say so than invent a number.
-- **Paraphrasing defeats it.** Running AI text through a rewrite degrades every signal here, watermarks included. This is a documented property of the whole field, not a bug specific to ADAFAI.
+- **Paraphrasing degrades it.** Running AI text through a rewrite (or a "humanizer") defeats the *surface* signals — stylometry drops to zero when sentence lengths, vocabulary, and tell-phrases are all reworked. The discourse signal exists because the rhetorical scaffold (negation pivots, rule-of-three lists, per-paragraph punch lines, even paragraph lengths) usually survives a rewrite that only touches the surface. It moves such text from a false "likely human" to "uncertain" — not to a conviction. Determined rewriting still wins, and watermarks degrade with the text. This is a documented property of the whole field, not a bug specific to ADAFAI.
 - **Short text is unscoreable.** Below 150 words the tool abstains by design.
 - **Non-native English writers get false positives.** Stylometric and perplexity signals systematically misfire on ESL writing across every tool in this space. If you deploy this in an educational setting without accounting for that, you will disproportionately harm the students least able to contest it.
 - **Edited human text trips the typography signal.** Word processors autocorrect straight quotes into curly ones, which is why that signal is weighted low.
@@ -174,6 +176,7 @@ proven, not assumed.
 adafai/
 ├── stylometry.py          # lexical + statistical features (no deps)
 ├── unicode_forensics.py   # character-level provenance (no deps)
+├── discourse.py           # rhetorical-scaffold features, robust to rewriting (no deps)
 ├── spans.py               # per-sentence localization + reasons (no deps)
 ├── perplexity.py          # perplexity + burstiness
 ├── binoculars.py          # cross-model perplexity ratio
@@ -185,13 +188,14 @@ adafai/
     └── providers.py       # per-provider watermark status
 docs/                      # web UI (zero-dependency JS port of the core signals)
 tests/                     # assert-based, no framework required
+tests/fixtures/            # real false-negative report texts, shared by the Python and JS checks
 ```
 
 Run the checks:
 
 ```bash
 python tests/test_stylometry.py && python tests/test_unicode_forensics.py && python tests/test_kirchenbauer.py
-python tests/test_spans.py
+python tests/test_spans.py && python tests/test_discourse.py
 node tests/test_web_ui.mjs   # browser-port parity behaviors
 ```
 
