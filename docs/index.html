@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ADAFAI — AI Text Detector</title>
+  <meta name="description" content="Open-source AI-generated text detection that shows its work. Runs entirely in your browser — no uploads, no length limits." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%8D%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <div>
+        <h1>ADAFAI</h1>
+        <p class="tagline">Automated Detection Algorithm For Artificial Intelligence — web edition</p>
+      </div>
+      <a class="repo-link" href="https://github.com/virajshoor/ADAFAI" target="_blank" rel="noopener">
+        GitHub&nbsp;↗
+      </a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="privacy-strip">
+      <span class="pill pill-local">100% local</span>
+      <span class="pill">no uploads</span>
+      <span class="pill">no length limit</span>
+      <span class="pill">every signal explained</span>
+    </section>
+
+    <section class="card input-card">
+      <div class="input-toolbar">
+        <label for="input"><strong>Paste text</strong></label>
+        <span id="wordCount" class="word-count">0 words</span>
+      </div>
+      <textarea id="input" spellcheck="false"
+        placeholder="Paste any amount of text — a paragraph, an essay, a book. Analysis runs entirely in this tab; nothing ever leaves your device. (Ctrl/Cmd + Enter to analyze)"></textarea>
+      <div class="button-row">
+        <button id="analyzeBtn" class="btn btn-primary">Analyze</button>
+        <button id="pasteBtn" class="btn">Paste</button>
+        <button id="sampleAiBtn" class="btn btn-ghost">Sample: AI-like</button>
+        <button id="sampleHumanBtn" class="btn btn-ghost">Sample: human-like</button>
+        <button id="clearBtn" class="btn btn-ghost">Clear</button>
+      </div>
+    </section>
+
+    <section id="results" hidden>
+      <div id="verdictBanner" class="card verdict-banner">
+        <div class="verdict-left">
+          <span id="verdictBadge" class="verdict-badge"></span>
+          <div>
+            <div id="verdictScore" class="verdict-score"></div>
+            <div id="verdictWords" class="verdict-words"></div>
+          </div>
+        </div>
+        <p id="verdictNote" class="verdict-note"></p>
+      </div>
+
+      <div id="provenance" class="card provenance" hidden>
+        <h2>Provenance findings</h2>
+        <p class="muted">These are character-level artifacts of how the text was produced — far stronger evidence than any statistical score.</p>
+        <ul id="provenanceList"></ul>
+      </div>
+
+      <div class="card">
+        <h2>Why this verdict</h2>
+        <div class="why-grid">
+          <div>
+            <h3 class="why-ai">Points toward AI</h3>
+            <ul id="whyAi" class="why-list"></ul>
+          </div>
+          <div>
+            <h3 class="why-human">Points toward human</h3>
+            <ul id="whyHuman" class="why-list"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Signals</h2>
+        <p class="muted">The same zero-dependency signals as the <code>adafai</code> CLI. The model-based signals (perplexity, Binoculars, watermarks) need PyTorch and are only in the Python package.</p>
+        <div class="signal-grid">
+          <div class="signal-card">
+            <div class="signal-head">
+              <h3>Stylometry</h3>
+              <span id="stylometryScore" class="signal-score"></span>
+            </div>
+            <dl id="stylometryMetrics" class="metrics"></dl>
+          </div>
+          <div class="signal-card">
+            <div class="signal-head">
+              <h3>Unicode forensics</h3>
+              <span id="unicodeScore" class="signal-score"></span>
+            </div>
+            <dl id="unicodeMetrics" class="metrics"></dl>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="highlight-head">
+          <h2>Sentence-by-sentence</h2>
+          <div class="highlight-controls">
+            <span id="flaggedCount" class="muted"></span>
+            <button id="nextFlaggedBtn" class="btn btn-small">Jump to next flagged ↓</button>
+          </div>
+        </div>
+        <p class="muted">
+          Each sentence is scored against the same signals, computed locally around it.
+          Click any sentence to see exactly why it scored what it did. Sentence scores answer
+          <em>“where should I look closer”</em> — they are not verdicts.
+        </p>
+        <div class="legend">
+          <span><i class="swatch sw-none"></i>no signal</span>
+          <span><i class="swatch sw-low"></i>some</span>
+          <span><i class="swatch sw-med"></i>moderate</span>
+          <span><i class="swatch sw-high"></i>strong</span>
+          <span><i class="swatch sw-artifact"></i>character artifact</span>
+          <span><i class="swatch sw-lc"></i>too short to score</span>
+        </div>
+        <div id="document" class="document" tabindex="0"></div>
+        <div id="sentenceDetail" class="sentence-detail" hidden></div>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <p>
+        <strong>Honest limitations:</strong> heuristic ensemble with unfitted weights — a triage signal, not proof.
+        Never use as sole evidence in an academic-integrity or disciplinary decision. Paraphrased AI text defeats
+        every detector in this space, and non-native English writing draws false positives from all of them.
+        <a href="https://github.com/virajshoor/ADAFAI#honest-limitations" target="_blank" rel="noopener">Read the full limitations</a>.
+      </p>
+    </footer>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
