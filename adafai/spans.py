@@ -13,6 +13,8 @@ ensemble (adafai.stylometry, adafai.unicode_forensics), computed locally:
     (provenance artifacts - one hit outweighs every statistical term)
   - lexical diversity and trigram repetition over a word window centered on
     the sentence, because a lone sentence is too short for those measures
+  - the sentence-visible slice of the discourse signal (adafai.discourse):
+    negation pivots, rule-of-three lists, self-answered questions
   - typographic polish (em dash / curly quotes) - weak, as everywhere else
 
 Every threshold is a documented heuristic in the same style as detector.py;
@@ -23,6 +25,11 @@ with low_confidence=True unless a provenance artifact fired.
 """
 from bisect import bisect_left
 
+from adafai.discourse import (
+    NEGATION_PIVOT_RES,
+    SELF_QA_MAX_ANSWER_WORDS,
+    TRICOLON_RE,
+)
 from adafai.stylometry import (
     AI_TELL_PHRASES,
     _WORD_RE,
@@ -57,7 +64,7 @@ def analyze_spans(text: str) -> dict:
     half = CONTEXT_WORDS // 2
 
     sentences = []
-    for start, end, sent in spans:
+    for i, (start, end, sent) in enumerate(spans):
         low = sent.lower()
         n_words = len(_WORD_RE.findall(low))
         reasons = []
@@ -76,6 +83,16 @@ def analyze_spans(text: str) -> dict:
         homoglyphs = _present(sent, HOMOGLYPHS)
         typo = sum(sent.count(c) for c in _CURLY_QUOTES) + sent.count("—")
 
+        # Sentence-visible slice of the discourse signal (adafai.discourse):
+        # the rhetorical habits a humanizer pass leaves behind.
+        pivots = [m.group(0) for r in NEGATION_PIVOT_RES for m in r.finditer(low)]
+        tricolon = bool(TRICOLON_RE.search(low))
+        self_qa = (
+            i > 0
+            and spans[i - 1][2].rstrip().endswith("?")
+            and 0 < n_words <= SELF_QA_MAX_ANSWER_WORDS
+        )
+
         phrase_term = min(hits / 2.0, 1.0)          # 2+ tells in one sentence = max
         diversity_term = max(0.0, (0.75 - diversity) / 0.75)   # as document-level
         rep_term = min(rep / 0.15, 1.0)                        # as document-level
@@ -86,6 +103,9 @@ def analyze_spans(text: str) -> dict:
             + 0.20 * diversity_term
             + 0.20 * rep_term
             + 0.10 * typo_term
+            + 0.10 * (1.0 if pivots else 0.0)
+            + 0.10 * (1.0 if tricolon else 0.0)
+            + 0.10 * (1.0 if self_qa else 0.0)
         )
         artifact = False
         if invisible:
@@ -114,6 +134,15 @@ def analyze_spans(text: str) -> dict:
             )
         if rep > 0:
             reasons.append(f"{rep:.1%} of nearby word trigrams repeat")
+        if pivots:
+            shown = ", ".join(f"'{p}'" for p in sorted(set(pivots))[:2])
+            reasons.append(
+                f"negation pivot {shown} - 'not X, but Y' rhetoric, a discourse-level AI tell"
+            )
+        if tricolon:
+            reasons.append("rule-of-three list ('X, Y, and Z') - a discourse-level AI tell")
+        if self_qa:
+            reasons.append("self-answered question - fake conversational voice")
         if typo:
             reasons.append("typographic polish (em dash / curly quotes) - weak signal")
         if not reasons:
